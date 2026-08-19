@@ -7,7 +7,9 @@ authors = [
     { name = "Sarasi", email = "eg245387@engug.ruh.ac.lk" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pandas>=3.0.5",
+]
 
 [project.scripts]
 trip-planner = "trip_planner:main"
