@@ -1,6 +1,6 @@
 from utils.model_loader import ModelLoader
 from prompt_library.prompt import SYSTEM_PROMPT
-from langgraph.graph import StateGraph, MessageState, END, START
+from langgraph.graph import StateGraph, MessagesState, END, START
 from langgraph.prebuilt import ToolNode, tools_condition
 
 # from tools.weather_info_tool import WeatherInfoTool
@@ -20,7 +20,7 @@ class GraphBuilder():
         ]
         self.system_prompt = SYSTEM_PROMPT
 
-    def agent_function(self,state:MessageState):
+    def agent_function(self,state:MessagesState):
         """Main agent function that processes the input and generates a response."""
         user_question = state["messages"]
         input_question = [self.system_prompt] + user_question
@@ -28,7 +28,7 @@ class GraphBuilder():
         return {"messages": [response]}
 
     def build_graph(self):
-        graph_builder = StateGraph(MessageState)
+        graph_builder = StateGraph(MessagesState)
         graph_builder.add_node("agent", self.agent_function)
         graph_builder.add_node("tool", ToolNode(tools=self.tools))
         graph_builder.add_edge(START, "agent")

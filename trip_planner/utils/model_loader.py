@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 #rom langchain_huggingface import HuggingFaceEmbeddings
 from utils.config_loader import load_config
 from langchain_groq import ChatGroq
-from langhchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI
 
 
 
