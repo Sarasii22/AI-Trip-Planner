@@ -8,12 +8,11 @@ class WeatherInfoTool:
     def __init__(self):
         load_dotenv()
         self.api_key = os.environ.get("OPENWEATHERMAP_API_KEY")
-        self.weather_service = WeatherForecastTool(self.api_key) #get real time data
+        self.weather_service = WeatherForecastTool(self.api_key)
         self.weather_tool_list = self._setup_tools()
     
     def _setup_tools(self) -> List:
         """Setup all tools for the weather forecast tool"""
-
         @tool
         def get_current_weather(city: str) -> str:
             """Get current weather for a city"""
@@ -24,7 +23,6 @@ class WeatherInfoTool:
                 return f"Current weather in {city}: {temp}°C, {desc}"
             return f"Could not fetch weather for {city}"
         
-
         @tool
         def get_weather_forecast(city: str) -> str:
             """Get weather forecast for a city"""
