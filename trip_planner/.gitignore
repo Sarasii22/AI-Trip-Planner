@@ -12,6 +12,8 @@ dist/
 venv/
 env/
 
+output/
+
 # Environment variables and API keys
 .env
 .env.*

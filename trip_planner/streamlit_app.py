@@ -1,10 +1,11 @@
 import streamlit as st
 import requests
+import uuid
 
 BASE_URL = "http://localhost:8000"  # Backend endpoint
 
 st.set_page_config(
-    page_title="🌍 Travel Planner Agentic Application",
+    page_title="Travel Planner Agentic Application",
     page_icon="🌍",
     layout="centered",
     initial_sidebar_state="expanded",
@@ -16,6 +17,9 @@ st.caption("How can I help you plan a trip? Let me know where you want to visit.
 # Initialize chat history
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid.uuid4())
 
 # Render existing history
 for msg in st.session_state.messages:
@@ -31,7 +35,10 @@ if user_input:
 
     with st.spinner("Bot is thinking..."):
         try:
-            response = requests.post(f"{BASE_URL}/query", json={"question": user_input})
+            response = requests.post(
+                f"{BASE_URL}/query", 
+                json={"question": user_input, "thread_id": st.session_state.thread_id}
+            )
         except requests.exceptions.RequestException as e:
             st.error(f"Could not reach the backend: {e}")
             st.stop()

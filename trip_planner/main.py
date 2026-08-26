@@ -8,6 +8,7 @@ import os
 import datetime
 from dotenv import load_dotenv
 from pydantic import BaseModel
+
 load_dotenv()
 
 app = FastAPI()
@@ -22,6 +23,7 @@ app.add_middleware(
 
 class QueryRequest(BaseModel):
     question: str
+    thread_id: str = "default"   # identifies which conversation this belongs to
 
 graph_builder = GraphBuilder(model_provider="groq")
 react_app = graph_builder()  # build once, reuse across requests
@@ -40,8 +42,9 @@ async def save_graph_diagram():
 @app.post("/query")
 def query_travel_agent(query: QueryRequest):
     try:
+        config = {"configurable": {"thread_id": query.thread_id}}
         messages = {"messages": [query.question]}
-        output = react_app.invoke(messages)
+        output = react_app.invoke(messages, config=config)
         final_output = output["messages"][-1].content if isinstance(output, dict) and "messages" in output else str(output)
 
         saved_path = save_document(final_output)

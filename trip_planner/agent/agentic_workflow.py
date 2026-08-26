@@ -8,7 +8,7 @@ from tools.place_search_tool import PlaceSearchTool
 from tools.expense_calculator_tool import CalculatorTool
 from tools.currency_conversion_tool import CurrencyConverterTool
 from langchain_core.messages import SystemMessage
-
+from langgraph.checkpoint.memory import MemorySaver
 class GraphBuilder():
     def __init__(self,model_provider: str = "groq"):
         self.model_loader = ModelLoader(model_provider=model_provider)
@@ -31,7 +31,11 @@ class GraphBuilder():
         self.graph = None
         
         self.system_prompt = SYSTEM_PROMPT
-    
+
+        # in-memory checkpointer: keeps conversation state per thread_id
+        # NOTE: resets when the server restarts. Fine for a portfolio demo;
+        # swap for SqliteSaver/PostgresSaver for persistence across restarts.
+        self.checkpointer = MemorySaver()
     
     def agent_function(self, state: MessagesState):
         """Main agent function"""
@@ -51,6 +55,7 @@ class GraphBuilder():
             response = self.llm_with_tools.invoke(input_question + [correction])
 
         return {"messages": [response]}
+    
     def build_graph(self):
         graph_builder=StateGraph(MessagesState)
         graph_builder.add_node("agent", self.agent_function)
@@ -59,7 +64,7 @@ class GraphBuilder():
         graph_builder.add_conditional_edges("agent",tools_condition)
         graph_builder.add_edge("tools","agent")
         graph_builder.add_edge("agent",END)
-        self.graph = graph_builder.compile()
+        self.graph = graph_builder.compile(checkpointer=self.checkpointer)
         return self.graph
         
     def __call__(self):
