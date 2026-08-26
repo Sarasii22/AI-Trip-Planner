@@ -16,7 +16,10 @@ class PlaceSearchTool:
         """Setup all tools for the place search tool"""
         @tool
         def search_attractions(place:str) -> str:
-            """Search attractions of a place"""
+            """Search top attractions in and around a location
+            Args:
+                place: The exact name of the city or destination to search (e.g. "Paris", "Colombo").
+            """
             try:
                 attraction_result = self.google_places_search.google_search_attractions(place)
                 if attraction_result:

@@ -1,43 +1,17 @@
+# utils/expense_calculator.py
 class Calculator:
     @staticmethod
-    def multiply(a: int, b: int) -> int:
+    def multiply(a, b) -> float:
         """
-        Multiply two integers.
-
-        Args:
-            a (int): The first integer.
-            b (int): The second integer.
-
-        Returns:
-            int: The product of a and b.
+        Multiply two numbers (coerces numeric strings safely).
         """
-        return a * b
-    
+        return float(a) * float(b)
+
     @staticmethod
-    def calculate_total(*x: float) -> float:
-        """
-        Calculate sum of the given list of numbers
+    def calculate_total(*x) -> float:
+        return sum(float(v) for v in x)
 
-        Args:
-            x (list): List of floating numbers
-
-        Returns:
-            float: The sum of numbers in the list x
-        """
-        return sum(x)
-    
     @staticmethod
-    def calculate_daily_budget(total: float, days: int) -> float:
-        """
-        Calculate daily budget
-
-        Args:
-            total (float): Total cost.
-            days (int): Total number of days
-
-        Returns:
-            float: Expense for a single day
-        """
+    def calculate_daily_budget(total, days) -> float:
+        total, days = float(total), float(days)
         return total / days if days > 0 else 0
-    
-    

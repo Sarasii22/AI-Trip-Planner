@@ -7,6 +7,7 @@ from tools.weather_info_tool import WeatherInfoTool
 from tools.place_search_tool import PlaceSearchTool
 from tools.expense_calculator_tool import CalculatorTool
 from tools.currency_conversion_tool import CurrencyConverterTool
+from langchain_core.messages import SystemMessage
 
 class GraphBuilder():
     def __init__(self,model_provider: str = "groq"):
@@ -32,11 +33,23 @@ class GraphBuilder():
         self.system_prompt = SYSTEM_PROMPT
     
     
-    def agent_function(self,state: MessagesState):
+    def agent_function(self, state: MessagesState):
         """Main agent function"""
         user_question = state["messages"]
         input_question = [self.system_prompt] + user_question
-        response = self.llm_with_tools.invoke(input_question)
+
+        try:
+            response = self.llm_with_tools.invoke(input_question)
+        except Exception as e:
+            # Tool call validation failed at the API level — retry once with a corrective nudge
+            print(f"Tool call generation failed, retrying: {e}")
+            correction = SystemMessage(
+                content="Your previous tool call used incorrect parameter names. "
+                        "Carefully match the exact parameter names defined in each tool's schema "
+                        "(e.g. use 'place', not 'city' or 'location')."
+            )
+            response = self.llm_with_tools.invoke(input_question + [correction])
+
         return {"messages": [response]}
     def build_graph(self):
         graph_builder=StateGraph(MessagesState)
