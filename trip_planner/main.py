@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from agent.agentic_workflow import GraphBuilder
 from utils.save_to_document import save_document
 from starlette.responses import JSONResponse
+from utils.save_to_document import save_document
 import os
 import datetime
 from dotenv import load_dotenv
@@ -19,6 +20,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class QueryRequest(BaseModel):
+    question: str
+
 graph_builder = GraphBuilder(model_provider="groq")
 react_app = graph_builder()  # build once, reuse across requests
 
@@ -34,11 +38,14 @@ async def save_graph_diagram():
         print(f"Could not save graph diagram (non-fatal): {e}")
 
 @app.post("/query")
-async def query_travel_agent(query: QueryRequest):
+def query_travel_agent(query: QueryRequest):
     try:
         messages = {"messages": [query.question]}
         output = react_app.invoke(messages)
         final_output = output["messages"][-1].content if isinstance(output, dict) and "messages" in output else str(output)
-        return {"answer": final_output}
+
+        saved_path = save_document(final_output)
+
+        return {"answer": final_output, "saved_file": saved_path}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
