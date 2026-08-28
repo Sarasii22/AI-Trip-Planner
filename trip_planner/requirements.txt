@@ -15,5 +15,7 @@ langchain_openai
 langgraph
 langchain-google-community[places]
 
+xhtml2pdf
+markdown
 
 -e .

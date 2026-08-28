@@ -47,18 +47,31 @@ if user_input:
         data = response.json()
         answer = data.get("answer", "No answer returned.")
         saved_file = data.get("saved_file")
+        saved_pdf = data.get("saved_pdf")
 
         st.session_state.messages.append({"role": "assistant", "content": answer})
         with st.chat_message("assistant"):
             st.markdown(answer)
+            col1, col2 = st.columns(2)
             if saved_file:
                 try:
                     with open(saved_file, "rb") as f:
-                        st.download_button(
+                        col1.download_button(
                             label="📥 Download this trip plan (.md)",
                             data=f,
                             file_name=saved_file.split("/")[-1],
                             mime="text/markdown",
+                        )
+                except FileNotFoundError:
+                    pass
+            if saved_pdf:
+                try:
+                    with open(saved_pdf, "rb") as f:
+                        col2.download_button(
+                            "📄 Download PDF",
+                            data=f,
+                            file_name=saved_pdf.split("/")[-1],
+                            mime="application/pdf",
                         )
                 except FileNotFoundError:
                     pass

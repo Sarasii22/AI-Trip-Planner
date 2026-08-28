@@ -8,6 +8,7 @@ import os
 import datetime
 from dotenv import load_dotenv
 from pydantic import BaseModel
+from utils.save_to_document import save_document, save_document_pdf
 
 load_dotenv()
 
@@ -47,8 +48,13 @@ def query_travel_agent(query: QueryRequest):
         output = react_app.invoke(messages, config=config)
         final_output = output["messages"][-1].content if isinstance(output, dict) and "messages" in output else str(output)
 
-        saved_path = save_document(final_output)
+        saved_md, saved_pdf = None, None
 
-        return {"answer": final_output, "saved_file": saved_path}
+        # only export when the response looks like a completed itinerary, not a clarifying question
+        if len(final_output) > 800 and "?" not in final_output[-100:]:
+            saved_path = save_document(final_output)
+            saved_pdf = save_document_pdf(final_output)
+
+        return {"answer": final_output, "saved_file": saved_path, "saved_pdf": saved_pdf}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
