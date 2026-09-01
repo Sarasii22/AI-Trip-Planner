@@ -9,6 +9,7 @@ from tools.expense_calculator_tool import CalculatorTool
 from tools.currency_conversion_tool import CurrencyConverterTool
 from langchain_core.messages import SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
+
 class GraphBuilder():
     def __init__(self,model_provider: str = "groq"):
         self.model_loader = ModelLoader(model_provider=model_provider)
@@ -69,3 +70,11 @@ class GraphBuilder():
         
     def __call__(self):
         return self.build_graph()
+
+    def get_thread_history(self, thread_id: str):
+        """Return the list of messages stored for a given thread_id, or [] if none exist yet."""
+        config = {"configurable": {"thread_id": thread_id}}
+        state = self.graph.get_state(config)
+        if state and "messages" in state.values:
+            return state.values["messages"]
+        return []

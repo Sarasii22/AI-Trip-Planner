@@ -59,3 +59,17 @@ def query_travel_agent(query: QueryRequest):
         return {"answer": final_output, "saved_file": saved_md, "saved_pdf": saved_pdf}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/history/{thread_id}")
+def get_history(thread_id: str):
+    try:
+        messages = graph_builder.get_thread_history(thread_id)
+        formatted = []
+        for m in messages:
+            role = "user" if m.type == "human" else "assistant"
+            # skip empty assistant messages that were just tool-call triggers
+            if m.content:
+                formatted.append({"role": role, "content": m.content})
+        return {"messages": formatted}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
