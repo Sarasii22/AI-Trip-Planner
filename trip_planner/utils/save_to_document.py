@@ -17,6 +17,11 @@ EMOJI_PATTERN = re.compile(
     flags=re.UNICODE,
 )
 
+# ALL Unicode dash/hyphen variants -> plain ASCII hyphen.
+# LLM output commonly uses U+2011 (non-breaking hyphen) instead of a plain "-",
+# which is exactly what was causing "3■Day", "Wi■Fi", "off■beat" etc.
+DASH_PATTERN = re.compile("[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]")
+
 # "Smart"/typographic characters that fall outside xhtml2pdf's supported font encoding
 CHAR_REPLACEMENTS = {
     "\u2011": "-",    # non-breaking hyphen -> regular hyphen (this caused most of your squares)
@@ -32,6 +37,7 @@ def _sanitize_for_pdf(text: str) -> str:
     """Strip emoji and replace typographic characters that xhtml2pdf can't render,
     to avoid '■' placeholder boxes in the PDF output."""
     text = EMOJI_PATTERN.sub("", text)
+    text = DASH_PATTERN.sub("-", text)
     for bad, good in CHAR_REPLACEMENTS.items():
         text = text.replace(bad, good)
     # collapse extra spaces left behind where emoji were removed
