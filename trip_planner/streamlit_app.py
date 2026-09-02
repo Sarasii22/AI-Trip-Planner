@@ -1,6 +1,8 @@
 import streamlit as st
 import requests
 import uuid
+import re
+import json
 
 BASE_URL = "http://localhost:8000"
 
@@ -76,6 +78,62 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ---------------- Helpers ----------------
+def extract_clarify_blocks(text: str):
+    """Look for a ```clarify [...] ``` fenced block in the assistant's reply.
+    Returns (clean_text, blocks) where blocks is None if no valid block was found."""
+    match = re.search(r"```clarify\s*(\[.*?\])\s*```", text, re.DOTALL)
+    if not match:
+        return text, None
+    try:
+        blocks = json.loads(match.group(1))
+        if not isinstance(blocks, list) or not blocks:
+            return text, None
+    except (json.JSONDecodeError, TypeError):
+        return text, None
+    clean_text = (text[:match.start()] + text[match.end():]).strip()
+    return clean_text, blocks
+
+
+def send_message(active_id: str, active_chat: dict, text: str):
+    """Send a message to the backend and update chat state. Shared by typed input,
+    example clicks, and clarify-button clicks so all three behave identically."""
+    if active_chat["title"] == "New chat":
+        active_chat["title"] = text[:40] + ("..." if len(text) > 40 else "")
+
+    active_chat["messages"].append({"role": "user", "content": text})
+    active_chat["pending_clarify"] = None
+    active_chat["clarify_selections"] = {}
+
+    with st.spinner("Planning your trip..."):
+        try:
+            response = requests.post(
+                f"{BASE_URL}/query",
+                json={"question": text, "thread_id": active_id},
+                #timeout=120,
+            )
+        except requests.exceptions.RequestException as e:
+            st.error(f"⚠️ Could not reach the backend: {e}")
+            st.stop()
+
+    if response.status_code == 200:
+        data = response.json()
+        raw_answer = data.get("answer", "No answer returned.")
+        clean_answer, clarify_blocks = extract_clarify_blocks(raw_answer)
+
+        active_chat["messages"].append({
+            "role": "assistant",
+            "content": clean_answer,
+            "saved_file": data.get("saved_file"),
+            "saved_pdf": data.get("saved_pdf"),
+        })
+        active_chat["pending_clarify"] = clarify_blocks
+    else:
+        st.error("⚠️ Bot failed to respond: " + response.text)
+
+    st.rerun()
+
+
 # ---------------- Session state ----------------
 if "chats" not in st.session_state:
     first_id = str(uuid.uuid4())
@@ -114,11 +172,14 @@ with st.sidebar:
 # ---------------- Main chat area ----------------
 active_id = st.session_state.active_chat
 active_chat = st.session_state.chats[active_id]
+active_chat.setdefault("pending_clarify", None)
+active_chat.setdefault("clarify_selections", {})
 
 st.title("🌍 Travel Planner")
 st.caption("Tell me where you want to go, and I'll build you a complete trip plan.")
 
 # Empty state — friendly starter prompts
+clicked_example = None
 if not active_chat["messages"]:
     st.markdown("#### Try asking:")
     example_cols = st.columns(3)
@@ -135,42 +196,13 @@ else:
     clicked_example = None
 
 # Render existing messages
-for msg in active_chat["messages"]:
+for i, msg in enumerate(active_chat["messages"]):
     avatar = "🧳" if msg["role"] == "user" else "🌍"
     with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])
-
-user_input = st.chat_input("e.g. Plan a trip to Goa for 5 days") or clicked_example
-
-if user_input:
-    if active_chat["title"] == "New chat":
-        active_chat["title"] = user_input[:40] + ("..." if len(user_input) > 40 else "")
-
-    active_chat["messages"].append({"role": "user", "content": user_input})
-    with st.chat_message("user", avatar="🧳"):
-        st.markdown(user_input)
-
-    with st.spinner("Planning your trip..."):
-        try:
-            response = requests.post(
-                f"{BASE_URL}/query",
-                json={"question": user_input, "thread_id": active_id},
-                timeout=120,
-            )
-        except requests.exceptions.RequestException as e:
-            st.error(f"⚠️ Could not reach the backend: {e}")
-            st.stop()
-
-    if response.status_code == 200:
-        data = response.json()
-        answer = data.get("answer", "No answer returned.")
-        saved_file = data.get("saved_file")
-        saved_pdf = data.get("saved_pdf")
-
-        active_chat["messages"].append({"role": "assistant", "content": answer})
-        with st.chat_message("assistant", avatar="🌍"):
-            st.markdown(answer)
-
+        if msg["role"] == "assistant":
+            saved_file = msg.get("saved_file")
+            saved_pdf = msg.get("saved_pdf")
             if saved_file or saved_pdf:
                 col1, col2 = st.columns(2)
                 if saved_file:
@@ -179,8 +211,7 @@ if user_input:
                             col1.download_button(
                                 "📥 Markdown", data=f,
                                 file_name=saved_file.split("/")[-1], mime="text/markdown",
-                                key=f"md_{active_id}_{len(active_chat['messages'])}",
-                                use_container_width=True,
+                                key=f"md_{active_id}_{i}", use_container_width=True,
                             )
                     except FileNotFoundError:
                         pass
@@ -190,11 +221,77 @@ if user_input:
                             col2.download_button(
                                 "📄 PDF", data=f,
                                 file_name=saved_pdf.split("/")[-1], mime="application/pdf",
-                                key=f"pdf_{active_id}_{len(active_chat['messages'])}",
-                                use_container_width=True,
+                                key=f"pdf_{active_id}_{i}", use_container_width=True,
                             )
                     except FileNotFoundError:
                         pass
-        st.rerun()
-    else:
-        st.error("⚠️ Bot failed to respond: " + response.text)
+
+# ---------------- Pending clarify buttons (for the latest assistant message) ----------------
+clarify_answer = None
+pending = active_chat.get("pending_clarify")
+
+if pending:
+    with st.container():
+        st.markdown("&nbsp;")
+        selections = active_chat["clarify_selections"]
+        has_multi = any(block.get("type") == "multi" for block in pending)
+
+        if len(pending) == 1 and pending[0].get("type", "single") == "single":
+            # single question -> clicking an option submits immediately
+            block = pending[0]
+            st.markdown(f"**{block['question']}**")
+            cols = st.columns(len(block["options"]))
+            for oi, opt in enumerate(block["options"]):
+                if cols[oi].button(opt, key=f"clarify_{active_id}_{len(active_chat['messages'])}_0_{oi}", use_container_width=True):
+                    clarify_answer = opt
+        else:
+            # multiple questions -> pick one option per question, then a Continue button
+            for qi, block in enumerate(pending):
+                q_type = block.get("type", "single")
+                st.markdown(f"**{block['question']}**")
+                if q_type == "multi":
+                    chosen = st.multiselect(
+                        "Select all that apply",
+                        options=block["options"],
+                        default=selections.get(qi, []),
+                        key=f"clarify_multi_{active_id}_{len(active_chat['messages'])}_{qi}",
+                        label_visibility="collapsed",
+                    )
+                    selections[qi] = chosen
+                else:
+                    cols = st.columns(len(block["options"]))
+                    for oi, opt in enumerate(block["options"]):
+                        is_selected = selections.get(qi) == opt
+                        label = ("✅ " if is_selected else "") + opt
+                        if cols[oi].button(label, key=f"clarify_{active_id}_{len(active_chat['messages'])}_{qi}_{oi}", use_container_width=True):
+                            selections[qi] = opt
+                            st.rerun()
+
+            def _is_answered(qi, block):
+                val = selections.get(qi)
+                return bool(val) if block.get("type") == "multi" else val is not None
+
+            all_answered = all(_is_answered(qi, block) for qi, block in enumerate(pending))
+
+            if all_answered:
+                if st.button("Continue ➜", type="primary", key=f"continue_{active_id}_{len(active_chat['messages'])}"):
+                    parts = []
+                    for qi, block in enumerate(pending):
+                        val = selections[qi]
+                        if isinstance(val, list):
+                            parts.append(", ".join(val))
+                        else:
+                            parts.append(val)
+                    clarify_answer = "; ".join(parts)
+            else:
+                st.caption("Answer each question to continue.")
+                
+# ---------------- Input handling ----------------
+typed_input = st.chat_input("e.g. Plan a trip to Goa for 5 days")
+
+final_input = typed_input or clicked_example or clarify_answer
+
+if final_input:
+    with st.chat_message("user", avatar="🧳"):
+        st.markdown(final_input)
+    send_message(active_id, active_chat, final_input)
