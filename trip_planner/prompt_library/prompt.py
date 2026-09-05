@@ -53,8 +53,7 @@ Provide everything in one comprehensive response formatted in clean Markdown.
 
 
 ## Clickable clarifying questions — IMPORTANT
-Depending on what the user hasn't already told you, choose from (don't ask all of them —
-pick 2-4 that are most useful and not already answered):
+Depending on what the user hasn't already told you, choose from:
 - Departure city/country (open text, not a clarify block)
 - Trip duration / dates (open text, unless the user gave a fixed length already)
 - Who's traveling: solo, couple, family with kids, friends group (single choice)

@@ -234,38 +234,76 @@ if pending:
     with st.container():
         st.markdown("&nbsp;")
         selections = active_chat["clarify_selections"]
+        other_texts = active_chat.setdefault("clarify_other_texts", {})
+        show_other_input = active_chat.setdefault("clarify_show_other", {})
+
+        def _single_question_ui(qi, block, msg_len, immediate_submit=False):
+            """Renders a single-choice question with an 'Other' escape hatch.
+            Returns an answer string if the user just submitted one, else None."""
+            st.markdown(f"**{block['question']}**")
+
+            opts = block["options"]
+            cols = st.columns(len(opts) + 1)
+            for oi, opt in enumerate(opts):
+                is_selected = selections.get(qi) == opt
+                label = ("✅ " if is_selected else "") + opt
+                if cols[oi].button(opt if not is_selected else label, key=f"clarify_{active_id}_{msg_len}_{qi}_{oi}", use_container_width=True):
+                    show_other_input[qi] = False
+                    if immediate_submit:
+                        return opt
+                    selections[qi] = opt
+                    st.rerun()
+
+            if cols[-1].button("✏️ Other", key=f"clarify_other_btn_{active_id}_{msg_len}_{qi}", use_container_width=True):
+                show_other_input[qi] = True
+                st.rerun()
+
+            if show_other_input.get(qi):
+                custom_val = st.text_input(
+                    "Type your own answer",
+                    key=f"clarify_other_text_{active_id}_{msg_len}_{qi}",
+                    label_visibility="collapsed",
+                    placeholder="Type your answer and press Submit",
+                )
+                if st.button("Submit", key=f"clarify_other_submit_{active_id}_{msg_len}_{qi}"):
+                    if custom_val.strip():
+                        if immediate_submit:
+                            return custom_val.strip()
+                        selections[qi] = custom_val.strip()
+                        st.rerun()
+            return None
+
         has_multi = any(block.get("type") == "multi" for block in pending)
 
         if len(pending) == 1 and pending[0].get("type", "single") == "single":
-            # single question -> clicking an option submits immediately
-            block = pending[0]
-            st.markdown(f"**{block['question']}**")
-            cols = st.columns(len(block["options"]))
-            for oi, opt in enumerate(block["options"]):
-                if cols[oi].button(opt, key=f"clarify_{active_id}_{len(active_chat['messages'])}_0_{oi}", use_container_width=True):
-                    clarify_answer = opt
+            # single question, single choice -> submits immediately (including custom "Other" text)
+            result = _single_question_ui(0, pending[0], len(active_chat["messages"]), immediate_submit=True)
+            if result:
+                clarify_answer = result
         else:
-            # multiple questions -> pick one option per question, then a Continue button
             for qi, block in enumerate(pending):
                 q_type = block.get("type", "single")
-                st.markdown(f"**{block['question']}**")
+
                 if q_type == "multi":
+                    st.markdown(f"**{block['question']}**")
                     chosen = st.multiselect(
                         "Select all that apply",
                         options=block["options"],
-                        default=selections.get(qi, []),
+                        default=[v for v in selections.get(qi, []) if v in block["options"]],
                         key=f"clarify_multi_{active_id}_{len(active_chat['messages'])}_{qi}",
                         label_visibility="collapsed",
                     )
-                    selections[qi] = chosen
+                    custom_val = st.text_input(
+                        "Anything else not listed?",
+                        key=f"clarify_multi_other_{active_id}_{len(active_chat['messages'])}_{qi}",
+                        placeholder="Optional — add anything not in the list above",
+                    )
+                    combined = list(chosen)
+                    if custom_val.strip():
+                        combined.append(custom_val.strip())
+                    selections[qi] = combined
                 else:
-                    cols = st.columns(len(block["options"]))
-                    for oi, opt in enumerate(block["options"]):
-                        is_selected = selections.get(qi) == opt
-                        label = ("✅ " if is_selected else "") + opt
-                        if cols[oi].button(label, key=f"clarify_{active_id}_{len(active_chat['messages'])}_{qi}_{oi}", use_container_width=True):
-                            selections[qi] = opt
-                            st.rerun()
+                    _single_question_ui(qi, block, len(active_chat["messages"]), immediate_submit=False)
 
             def _is_answered(qi, block):
                 val = selections.get(qi)
@@ -278,10 +316,7 @@ if pending:
                     parts = []
                     for qi, block in enumerate(pending):
                         val = selections[qi]
-                        if isinstance(val, list):
-                            parts.append(", ".join(val))
-                        else:
-                            parts.append(val)
+                        parts.append(", ".join(val) if isinstance(val, list) else val)
                     clarify_answer = "; ".join(parts)
             else:
                 st.caption("Answer each question to continue.")
