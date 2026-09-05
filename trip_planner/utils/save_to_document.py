@@ -20,26 +20,37 @@ EMOJI_PATTERN = re.compile(
 # ALL Unicode dash/hyphen variants -> plain ASCII hyphen.
 # LLM output commonly uses U+2011 (non-breaking hyphen) instead of a plain "-",
 # which is exactly what was causing "3■Day", "Wi■Fi", "off■beat" etc.
+
 DASH_PATTERN = re.compile("[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]")
 
-# "Smart"/typographic characters that fall outside xhtml2pdf's supported font encoding
+# "Smart"/typographic characters and common currency symbols that fall outside
+# xhtml2pdf's default font support
 CHAR_REPLACEMENTS = {
-    "\u2011": "-",    # non-breaking hyphen -> regular hyphen (this caused most of your squares)
-    "\u2013": "-",    # en dash
-    "\u2014": "--",   # em dash
+    "\u2011": "-",
+    "\u2013": "-",
+    "\u2014": "--",
     "\u2018": "'", "\u2019": "'",
     "\u201c": '"', "\u201d": '"',
     "\u2026": "...",
-    "\u00a0": " ",    # non-breaking space
+    "\u00a0": " ",
+    "\u20b9": "Rs.",   # Indian Rupee sign (₹)
+    "\u20a8": "Rs.",   # Rupee sign (₨)
+    "\u0e3f": "Baht",  # Thai Baht sign
+    "\u00a3": "GBP",   # £ (only needed if you ever swap fonts that don't support it)
 }
 
 def _sanitize_for_pdf(text: str) -> str:
-    """Strip emoji and replace typographic characters that xhtml2pdf can't render,
-    to avoid '■' placeholder boxes in the PDF output."""
+    """Strip emoji, replace typographic/currency characters that xhtml2pdf can't
+    render, then strip ANY remaining character outside the font's safe range as
+    a catch-all — so no future unexpected character can produce a '■' again."""
     text = EMOJI_PATTERN.sub("", text)
     text = DASH_PATTERN.sub("-", text)
     for bad, good in CHAR_REPLACEMENTS.items():
         text = text.replace(bad, good)
+    # Safety net: xhtml2pdf's default font reliably covers only Latin-1 (ord <= 255).
+    # Anything left above that at this point is a character we haven't explicitly
+    # mapped — drop it rather than let it render as a square.
+    text = "".join(ch for ch in text if ord(ch) <= 255)
     # collapse extra spaces left behind where emoji were removed
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = "\n".join(line.strip() for line in text.split("\n"))
@@ -165,7 +176,7 @@ def save_document_pdf(response_text: str, directory: str = "./output") -> str:
     pdf_source = _sanitize_for_pdf(pdf_source)
 
     try:
-        html_body = md.markdown(markdown_content, extensions=["tables", "fenced_code"])
+        html_body = md.markdown(pdf_source, extensions=["tables", "fenced_code"])
         full_html = f"<html><head><style>{PDF_CSS}</style></head><body>{html_body}</body></html>"
 
         out_timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
