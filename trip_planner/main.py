@@ -9,6 +9,7 @@ import datetime
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from utils.save_to_document import save_document, save_document_pdf
+import traceback
 
 load_dotenv()
 
@@ -58,8 +59,16 @@ def query_travel_agent(query: QueryRequest):
 
         return {"answer": final_output, "saved_file": saved_md, "saved_pdf": saved_pdf}
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
+        error_str = str(e)
+        if "rate_limit_exceeded" in error_str or "429" in error_str:
+            return JSONResponse(status_code=429, content={
+                "error": "Daily AI usage limit reached for this model. Try again later, or switch to a different model in config.yaml."
+            })
+        print("=== /query failed ===")
+        traceback.print_exc()
+        print("======================")
+        return JSONResponse(status_code=500, content={"error": error_str})
+    
 @app.get("/history/{thread_id}")
 def get_history(thread_id: str):
     try:
@@ -71,5 +80,12 @@ def get_history(thread_id: str):
             if m.content:
                 formatted.append({"role": role, "content": m.content})
         return {"messages": formatted}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/threads")
+def list_threads():
+    try:
+        return {"thread_ids": graph_builder.list_thread_ids()}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})

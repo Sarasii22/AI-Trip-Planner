@@ -18,3 +18,7 @@ env/
 
 # uv cache
 .uv/
+
+checkpoints.sqlite
+checkpoints.sqlite-wal
+checkpoints.sqlite-shm

@@ -15,8 +15,10 @@ An **agentic AI-powered travel planning application** built with LangGraph, Fast
 - 💱 **Live currency conversion** for budget estimates
 - 🧮 **Accurate expense calculation** (no manual totalling — tool-verified)
 - 📥 **Export itinerary** as a styled Markdown (`.md`) or PDF file
-- 💬 **Multi-turn conversation memory** (per session `thread_id`)
+- 💬 **Multi-turn conversation memory** with SQLite persistence (survives server restarts)
 - 🔗 **Clickable links** for every hotel, restaurant, and attraction
+- 🧭 **Interactive clarify buttons** in the UI for guided preference selection
+- 📜 **Conversation history API** — retrieve past sessions by `thread_id`
 
 ---
 
@@ -31,20 +33,22 @@ An **agentic AI-powered travel planning application** built with LangGraph, Fast
 ┌──────────────────▼──────────────────────────┐
 │             FastAPI Backend                  │
 │               (main.py)                     │
+│  POST /query  |  GET /history/{thread_id}   │
+│  GET /threads                               │
 └──────────────────┬──────────────────────────┘
                    │
 ┌──────────────────▼──────────────────────────┐
 │         LangGraph ReAct Agent               │
 │       (agent/agentic_workflow.py)           │
 │                                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-│  │  agent   │◄─│  tools   │  │MemorySaver│ │
+│  ┌──────────┐  ┌──────────┐  ┌───────────┐ │
+│  │  agent   │◄─│  tools   │  │SqliteSaver│ │
 │  │ (LLM)   │──►│  node    │  │(per thread)│ │
-│  └──────────┘  └──────────┘  └──────────┘  │
+│  └──────────┘  └──────────┘  └───────────┘ │
 └─────────────────────────────────────────────┘
 ```
 
-The agent follows a **ReAct loop** (Reason → Act → Observe) powered by LangGraph's `StateGraph`. A `MemorySaver` checkpointer maintains conversation history per `thread_id`, enabling multi-turn sessions.
+The agent follows a **ReAct loop** (Reason → Act → Observe) powered by LangGraph's `StateGraph`. A `SqliteSaver` checkpointer persists conversation history per `thread_id` in `checkpoints.sqlite`, enabling multi-turn sessions that survive server restarts.
 
 ---
 
@@ -61,6 +65,7 @@ The agent follows a **ReAct loop** (Reason → Act → Observe) powered by LangG
 | `estimate_total_hotel_cost` | price × nights calculation | Built-in |
 | `calculate_total_expense` | Sum of all trip cost items | Built-in |
 | `calculate_daily_expense_budget` | total ÷ days budget breakdown | Built-in |
+| `arithmetic_operation` | General arithmetic for cost calculations | Built-in |
 | `convert_currency` | Live currency conversion | ExchangeRate API |
 
 > Place search uses **Google Places** as the primary source and automatically falls back to **Tavily** web search if Google fails.
@@ -77,14 +82,16 @@ AI-Trip-Planner/
     ├── pyproject.toml           # Project metadata & build config
     ├── requirements.txt         # Python dependencies
     ├── .env.name                # Environment variable template
+    ├── my_graph.png             # Auto-generated LangGraph diagram
     │
     ├── agent/
-    │   └── agentic_workflow.py  # LangGraph GraphBuilder (ReAct agent)
+    │   └── agentic_workflow.py  # LangGraph GraphBuilder (ReAct agent + SqliteSaver)
     │
     ├── tools/                   # LangChain tool wrappers
     │   ├── weather_info_tool.py
     │   ├── place_search_tool.py
     │   ├── expense_calculator_tool.py
+    │   ├── arithmatic_op_tool.py
     │   └── currency_conversion_tool.py
     │
     ├── utils/                   # Core service implementations
@@ -102,6 +109,14 @@ AI-Trip-Planner/
     ├── config/
     │   └── config.yaml          # LLM model configuration
     │
+    ├── exception/
+    │   └── exceptionhandling.py # Custom exception handling
+    │
+    ├── logger/
+    │   └── logging.py           # Application logger setup
+    │
+    ├── notebook/                # Jupyter notebooks (experimentation)
+    ├── assets/                  # Static assets (fonts, etc.)
     └── output/                  # Generated itinerary files (.md / .pdf)
 ```
 
@@ -159,6 +174,8 @@ LANGCHAIN_API_KEY=""      # LangSmith tracing
 GOOGLE_API_KEY=""         # General Google API key
 ```
 
+> **Note:** The `.env.name` template also contains `FOURSQUARE_API_KEY` for future place-discovery expansion, though it is not used by the current tool implementations.
+
 ### 5. Configure the LLM model
 
 Edit [`config/config.yaml`](trip_planner/config/config.yaml) to choose your model:
@@ -206,17 +223,37 @@ Open `http://localhost:8501` in your browser.
 
 1. Open the Streamlit app in your browser.
 2. Type your destination or travel query (e.g. *"Plan a trip to Canada for 5 days"*).
-3. The agent will ask 1–2 clarifying questions (departure city, budget, interests, dates).
+3. The agent may ask 1–2 clarifying questions (departure city, budget, interests, dates) — answer via the interactive buttons or free-text input.
 4. Once you answer, it generates the **full itinerary** in one response.
 5. Download the plan as a **Markdown** or **PDF** file using the buttons below the response.
 
-### API usage (direct)
+### API Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/query` | Send a message to the travel agent |
+| `GET` | `/history/{thread_id}` | Retrieve conversation history for a session |
+| `GET` | `/threads` | List all thread IDs with saved state |
+
+**Example request:**
 
 ```bash
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
   -d '{"question": "Plan a 5-day trip to Paris", "thread_id": "my-session"}'
 ```
+
+**Example response:**
+
+```json
+{
+  "answer": "## 🗺️ Your 5-Day Paris Itinerary ...",
+  "saved_file": "output/AI_Trip_Planner_20260906_123456.md",
+  "saved_pdf": "output/AI_Trip_Planner_20260906_123456.pdf"
+}
+```
+
+> `saved_file` and `saved_pdf` are `null` when the response is a clarifying question rather than a completed itinerary.
 
 ---
 
@@ -225,6 +262,7 @@ curl -X POST http://localhost:8000/query \
 | Package | Purpose |
 |---|---|
 | `langgraph` | Agentic workflow / state graph |
+| `langgraph-checkpoint-sqlite` | SQLite-backed conversation persistence |
 | `langchain`, `langchain-community` | LLM orchestration & tools |
 | `langchain-groq` | Groq LLM provider |
 | `langchain-openai` | OpenAI LLM provider |
