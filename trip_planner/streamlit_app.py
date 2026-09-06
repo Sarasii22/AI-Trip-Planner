@@ -322,7 +322,7 @@ if pending:
                 st.caption("Answer each question to continue.")
                 
 # ---------------- Input handling ----------------
-typed_input = st.chat_input("e.g. Plan a trip to Goa for 5 days")
+typed_input = st.chat_input("e.g. Plan a trip to Canada for 5 days")
 
 final_input = typed_input or clicked_example or clarify_answer
 

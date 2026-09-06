@@ -205,7 +205,7 @@ Open `http://localhost:8501` in your browser.
 ## 💬 Usage
 
 1. Open the Streamlit app in your browser.
-2. Type your destination or travel query (e.g. *"Plan a trip to Goa for 5 days"*).
+2. Type your destination or travel query (e.g. *"Plan a trip to Canada for 5 days"*).
 3. The agent will ask 1–2 clarifying questions (departure city, budget, interests, dates).
 4. Once you answer, it generates the **full itinerary** in one response.
 5. Download the plan as a **Markdown** or **PDF** file using the buttons below the response.

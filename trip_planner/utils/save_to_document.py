@@ -124,7 +124,7 @@ def _build_markdown_content(response_text: str) -> str:
     return f"""# 🌍 AI Travel Plan
 
 **Generated:** {timestamp}
-**Created by:** Atriyo's Travel Agent
+**Created by:** CeylonBliss's Travel Agent
 
 ---
 
