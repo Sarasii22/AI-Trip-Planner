@@ -22,3 +22,5 @@ env/
 checkpoints.sqlite
 checkpoints.sqlite-wal
 checkpoints.sqlite-shm
+
+my_graph.png
