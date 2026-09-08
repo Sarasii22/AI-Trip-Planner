@@ -8,8 +8,23 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi",
+    "uvicorn",
     "langgraph>=1.2.11",
+    "langgraph-checkpoint-sqlite",
     "pandas>=3.0.5",
+    "langchain",
+    "langchain-community",
+    "langchain-groq",
+    "langchain-openai",
+    "langchain-google-community[places]",
+    "langchain-tavily",
+    "pydantic",
+    "python-dotenv",
+    "httpx",
+    "requests",
+    "xhtml2pdf",
+    "markdown",
 ]
 
 [project.scripts]
