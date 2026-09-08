@@ -4,7 +4,7 @@ import uuid
 import re
 import json
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "https://ai-trip-planner.fastapicloud.dev"
 
 st.set_page_config(
     page_title="Travel Planner AI",
