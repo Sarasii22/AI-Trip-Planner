@@ -98,6 +98,7 @@ def extract_clarify_blocks(text: str):
 
 
 
+
 def send_message(active_id: str, active_chat: dict, text: str):
     if active_chat["title"] == "New chat":
         active_chat["title"] = text[:40] + ("..." if len(text) > 40 else "")
@@ -107,55 +108,62 @@ def send_message(active_id: str, active_chat: dict, text: str):
     active_chat["clarify_selections"] = {}
 
     status_placeholder = st.empty()
-    status_placeholder.info("🧳 Starting...")
-
-    final_data = None
-    error_message = None
+    status_placeholder.info("🧳 Submitting your request...")
 
     try:
-        with requests.post(
-            f"{BASE_URL}/query/stream",
+        submit_resp = requests.post(
+            f"{BASE_URL}/query/submit",
             json={"question": text, "thread_id": active_id},
-            stream=True,
-            timeout=(10, 400),  # (connect timeout, read timeout) — read timeout is per-chunk, not total
-        ) as response:
-            if response.status_code != 200:
-                error_message = f"Backend returned {response.status_code}: {response.text}"
-            else:
-                for line in response.iter_lines(decode_unicode=True):
-                    if not line:
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-
-                    if chunk["type"] == "status":
-                        status_placeholder.info(f"🧳 {chunk['message']}")
-                    elif chunk["type"] == "heartbeat":
-                        status_placeholder.info("🧳 Still working...")
-                    elif chunk["type"] == "error":
-                        error_message = chunk["message"]
-                    elif chunk["type"] == "final":
-                        final_data = chunk
+            timeout=30,
+        )
+        submit_resp.raise_for_status()
+        job_id = submit_resp.json()["job_id"]
     except requests.exceptions.RequestException as e:
-        error_message = str(e)
+        status_placeholder.empty()
+        st.error(f"⚠️ Could not reach the backend: {e}")
+        st.stop()
+
+    messages_rotation = [
+        "Checking the weather...",
+        "Looking up places and restaurants...",
+        "Comparing hotel options...",
+        "Working out the costs...",
+        "Putting your itinerary together...",
+    ]
+    elapsed = 0
+    result = None
+
+    while True:
+        time.sleep(3)
+        elapsed += 3
+        try:
+            status_resp = requests.get(f"{BASE_URL}/query/status/{job_id}", timeout=30)
+            status_resp.raise_for_status()
+            result = status_resp.json()
+        except requests.exceptions.RequestException as e:
+            status_placeholder.empty()
+            st.error(f"⚠️ Lost connection while waiting: {e}")
+            st.stop()
+
+        if result.get("status") == "pending":
+            status_placeholder.info(f"🧳 {messages_rotation[(elapsed // 6) % len(messages_rotation)]} ({elapsed}s)")
+            continue
+        break
 
     status_placeholder.empty()
 
-    if error_message:
-        st.error(f"⚠️ {error_message}")
+    if result.get("status") == "error":
+        st.error(f"⚠️ {result.get('error')}")
         st.stop()
 
-    if final_data:
-        clean_answer, clarify_blocks = extract_clarify_blocks(final_data.get("answer", "No answer returned."))
-        active_chat["messages"].append({
-            "role": "assistant",
-            "content": clean_answer,
-            "saved_file": final_data.get("saved_file"),
-            "saved_pdf": final_data.get("saved_pdf"),
-        })
-        active_chat["pending_clarify"] = clarify_blocks
+    clean_answer, clarify_blocks = extract_clarify_blocks(result.get("answer", "No answer returned."))
+    active_chat["messages"].append({
+        "role": "assistant",
+        "content": clean_answer,
+        "saved_file": result.get("saved_file"),
+        "saved_pdf": result.get("saved_pdf"),
+    })
+    active_chat["pending_clarify"] = clarify_blocks
 
     st.rerun()
 
@@ -232,24 +240,28 @@ for i, msg in enumerate(active_chat["messages"]):
             if saved_file or saved_pdf:
                 col1, col2 = st.columns(2)
                 if saved_file:
+                    fname = saved_file.split("/")[-1]
                     try:
-                        with open(saved_file, "rb") as f:
+                        file_resp = requests.get(f"{BASE_URL}/download/{fname}", timeout=15)
+                        if file_resp.status_code == 200:
                             col1.download_button(
-                                "📥 Markdown", data=f,
-                                file_name=saved_file.split("/")[-1], mime="text/markdown",
+                                "📥 Markdown", data=file_resp.content,
+                                file_name=fname, mime="text/markdown",
                                 key=f"md_{active_id}_{i}", use_container_width=True,
                             )
-                    except FileNotFoundError:
+                    except requests.exceptions.RequestException:
                         pass
                 if saved_pdf:
+                    fname = saved_pdf.split("/")[-1]
                     try:
-                        with open(saved_pdf, "rb") as f:
+                        file_resp = requests.get(f"{BASE_URL}/download/{fname}", timeout=15)
+                        if file_resp.status_code == 200:
                             col2.download_button(
-                                "📄 PDF", data=f,
-                                file_name=saved_pdf.split("/")[-1], mime="application/pdf",
+                                "📄 PDF", data=file_resp.content,
+                                file_name=fname, mime="application/pdf",
                                 key=f"pdf_{active_id}_{i}", use_container_width=True,
                             )
-                    except FileNotFoundError:
+                    except requests.exceptions.RequestException:
                         pass
 
 # ---------------- Pending clarify buttons (for the latest assistant message) ----------------

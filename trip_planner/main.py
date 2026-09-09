@@ -13,8 +13,10 @@ import traceback
 import json
 import queue
 import threading
+import uuid
 import time
 from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 
 load_dotenv()
 
@@ -151,9 +153,52 @@ def _stream_agent_response(question: str, thread_id: str):
             return
 
 
-@app.post("/query/stream")
-def query_travel_agent_stream(query: QueryRequest):
-    return StreamingResponse(
-        _stream_agent_response(query.question, query.thread_id),
-        media_type="application/x-ndjson",
-    )
+jobs = {}  # job_id -> {"status": "pending" | "done" | "error", ...}
+
+def _run_agent_job(job_id: str, question: str, thread_id: str):
+    try:
+        config = {"configurable": {"thread_id": thread_id}}
+        output = react_app.invoke({"messages": [question]}, config=config)
+        final_output = output["messages"][-1].content if isinstance(output, dict) and "messages" in output else str(output)
+
+        saved_md, saved_pdf = None, None
+        if len(final_output) > 800 and "?" not in final_output[-100:]:
+            saved_md = save_document(final_output)
+            saved_pdf = save_document_pdf(final_output)
+
+        jobs[job_id] = {
+            "status": "done",
+            "answer": final_output,
+            "saved_file": saved_md,
+            "saved_pdf": saved_pdf,
+        }
+    except Exception as e:
+        error_str = str(e)
+        if "rate_limit_exceeded" in error_str or "429" in error_str:
+            jobs[job_id] = {"status": "error", "error": "Daily AI usage limit reached. Try again later or switch models."}
+        else:
+            jobs[job_id] = {"status": "error", "error": error_str}
+
+
+@app.post("/query/submit")
+def submit_query(query: QueryRequest):
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {"status": "pending"}
+    threading.Thread(target=_run_agent_job, args=(job_id, query.question, query.thread_id)).start()
+    return {"job_id": job_id}
+
+
+@app.get("/query/status/{job_id}")
+def get_query_status(job_id: str):
+    job = jobs.get(job_id)
+    if not job:
+        return JSONResponse(status_code=404, content={"error": "Unknown job_id"})
+    return job
+
+@app.get("/download/{filename}")
+def download_file(filename: str):
+    safe_name = os.path.basename(filename)  # prevent path traversal
+    filepath = os.path.join("output", safe_name)
+    if not os.path.isfile(filepath):
+        return JSONResponse(status_code=404, content={"error": "File not found"})
+    return FileResponse(filepath, filename=safe_name)
