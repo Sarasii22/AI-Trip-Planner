@@ -3,6 +3,8 @@ import requests
 import uuid
 import re
 import json
+import threading
+import time
 
 BASE_URL = "https://ai-trip-planner.fastapicloud.dev"
 
@@ -95,9 +97,8 @@ def extract_clarify_blocks(text: str):
     return clean_text, blocks
 
 
+
 def send_message(active_id: str, active_chat: dict, text: str):
-    """Send a message to the backend and update chat state. Shared by typed input,
-    example clicks, and clarify-button clicks so all three behave identically."""
     if active_chat["title"] == "New chat":
         active_chat["title"] = text[:40] + ("..." if len(text) > 40 else "")
 
@@ -105,31 +106,56 @@ def send_message(active_id: str, active_chat: dict, text: str):
     active_chat["pending_clarify"] = None
     active_chat["clarify_selections"] = {}
 
-    with st.spinner("Planning your trip..."):
-        try:
-            response = requests.post(
-                f"{BASE_URL}/query",
-                json={"question": text, "thread_id": active_id},
-                #timeout=120,
-            )
-        except requests.exceptions.RequestException as e:
-            st.error(f"⚠️ Could not reach the backend: {e}")
-            st.stop()
+    status_placeholder = st.empty()
+    status_placeholder.info("🧳 Starting...")
 
-    if response.status_code == 200:
-        data = response.json()
-        raw_answer = data.get("answer", "No answer returned.")
-        clean_answer, clarify_blocks = extract_clarify_blocks(raw_answer)
+    final_data = None
+    error_message = None
 
+    try:
+        with requests.post(
+            f"{BASE_URL}/query/stream",
+            json={"question": text, "thread_id": active_id},
+            stream=True,
+            timeout=(10, 400),  # (connect timeout, read timeout) — read timeout is per-chunk, not total
+        ) as response:
+            if response.status_code != 200:
+                error_message = f"Backend returned {response.status_code}: {response.text}"
+            else:
+                for line in response.iter_lines(decode_unicode=True):
+                    if not line:
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    if chunk["type"] == "status":
+                        status_placeholder.info(f"🧳 {chunk['message']}")
+                    elif chunk["type"] == "heartbeat":
+                        status_placeholder.info("🧳 Still working...")
+                    elif chunk["type"] == "error":
+                        error_message = chunk["message"]
+                    elif chunk["type"] == "final":
+                        final_data = chunk
+    except requests.exceptions.RequestException as e:
+        error_message = str(e)
+
+    status_placeholder.empty()
+
+    if error_message:
+        st.error(f"⚠️ {error_message}")
+        st.stop()
+
+    if final_data:
+        clean_answer, clarify_blocks = extract_clarify_blocks(final_data.get("answer", "No answer returned."))
         active_chat["messages"].append({
             "role": "assistant",
             "content": clean_answer,
-            "saved_file": data.get("saved_file"),
-            "saved_pdf": data.get("saved_pdf"),
+            "saved_file": final_data.get("saved_file"),
+            "saved_pdf": final_data.get("saved_pdf"),
         })
         active_chat["pending_clarify"] = clarify_blocks
-    else:
-        st.error("⚠️ Bot failed to respond: " + response.text)
 
     st.rerun()
 

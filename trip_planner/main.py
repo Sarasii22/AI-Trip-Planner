@@ -10,6 +10,11 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from utils.save_to_document import save_document, save_document_pdf
 import traceback
+import json
+import queue
+import threading
+import time
+from fastapi.responses import StreamingResponse
 
 load_dotenv()
 
@@ -89,3 +94,66 @@ def list_threads():
         return {"thread_ids": graph_builder.list_thread_ids()}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+def _stream_agent_response(question: str, thread_id: str):
+    """Runs the agent in a background thread and yields small JSON chunks as it
+    progresses. Chunks are sent at least every ~8 seconds (heartbeats if the
+    agent is still mid-step), which keeps the connection alive through
+    Cloudflare's 100-second no-data timeout — a single long blocking response
+    gets killed at 100s regardless of client-side timeout settings; a response
+    that keeps emitting bytes does not."""
+    q = queue.Queue()
+
+    def worker():
+        try:
+            config = {"configurable": {"thread_id": thread_id}}
+            for step in react_app.stream({"messages": [question]}, config=config, stream_mode="updates"):
+                node_name = list(step.keys())[0] if step else "agent"
+                q.put(("step", node_name))
+            q.put(("done", None))
+        except Exception as e:
+            q.put(("error", str(e)))
+
+    t = threading.Thread(target=worker)
+    t.start()
+
+    yield json.dumps({"type": "status", "message": "Starting..."}) + "\n"
+
+    while True:
+        try:
+            kind, payload = q.get(timeout=8)
+        except queue.Empty:
+            yield json.dumps({"type": "heartbeat"}) + "\n"
+            continue
+
+        if kind == "step":
+            yield json.dumps({"type": "status", "message": f"Working: {payload}..."}) + "\n"
+        elif kind == "error":
+            yield json.dumps({"type": "error", "message": payload}) + "\n"
+            return
+        elif kind == "done":
+            config = {"configurable": {"thread_id": thread_id}}
+            state = react_app.get_state(config)
+            final_output = state.values["messages"][-1].content if state and "messages" in state.values else ""
+
+            saved_md, saved_pdf = None, None
+            if len(final_output) > 800 and "?" not in final_output[-100:]:
+                saved_md = save_document(final_output)
+                saved_pdf = save_document_pdf(final_output)
+
+            yield json.dumps({
+                "type": "final",
+                "answer": final_output,
+                "saved_file": saved_md,
+                "saved_pdf": saved_pdf,
+            }) + "\n"
+            return
+
+
+@app.post("/query/stream")
+def query_travel_agent_stream(query: QueryRequest):
+    return StreamingResponse(
+        _stream_agent_response(query.question, query.thread_id),
+        media_type="application/x-ndjson",
+    )
