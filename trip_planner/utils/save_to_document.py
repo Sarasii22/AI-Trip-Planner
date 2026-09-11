@@ -163,7 +163,7 @@ def save_document_pdf(response_text: str, directory: str = "./output") -> str:
     pdf_source = f"""# AI Travel Plan
 
     **Generated:** {timestamp}
-    **Created by:** Atriyo's Travel Agent
+    **Created by:** CeylonBliss's Travel Agent
 
     ---
 
